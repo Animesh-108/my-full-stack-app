@@ -116,7 +116,7 @@ jobs:
 
           echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE}:green"
           kubectl apply -f $MANIFEST
-          kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE}:green
+          kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE}:${{ github.sha }}
           kubectl rollout status deployment/${SERVICE}-green --timeout=120s
 
       - name: Verify Green Deployment Health
