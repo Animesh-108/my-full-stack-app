@@ -69,6 +69,7 @@ jobs:
           else
             REPO_NAME="backend"
           fi
+
           aws ecr describe-repositories --repository-names $REPO_NAME --region ${{ secrets.AWS_REGION }} || \
           aws ecr create-repository --repository-name $REPO_NAME --region ${{ secrets.AWS_REGION }}
 
@@ -76,12 +77,13 @@ jobs:
         run: |
           if [ "$SERVICE" = "frontend" ]; then
             IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
+            cd frontend
           else
             IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
+            cd backend
           fi
 
           echo "🛠 Building Docker image for $SERVICE..."
-          cd $SERVICE
           docker build -t "${IMAGE}:green" .
           docker tag "${IMAGE}:green" "${IMAGE}:${{ github.sha }}"
 
@@ -106,13 +108,25 @@ jobs:
         run: |
           if [ "$SERVICE" = "frontend" ]; then
             IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
+            MANIFEST="k8s/frontend-green.yaml"
           else
             IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
+            MANIFEST="k8s/backend-green.yaml"
           fi
 
           echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE}:green"
+          kubectl apply -f $MANIFEST
           kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE}:green
           kubectl rollout status deployment/${SERVICE}-green --timeout=120s
+
+      - name: Verify Green Deployment Health
+        run: |
+          echo "🔍 Verifying Green deployment health..."
+          kubectl rollout status deployment/${SERVICE}-green --timeout=60s || {
+            echo "❌ Green deployment failed! Rolling back to Blue..."
+            kubectl patch svc ${SERVICE}-service -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"blue\"}}}"
+            exit 1
+          }
 
       - name: Switch Traffic (Blue → Green)
         if: success()
@@ -120,3 +134,14 @@ jobs:
           echo "🔁 Switching traffic to ${SERVICE}-green..."
           kubectl patch svc ${SERVICE}-service -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"green\"}}}"
           kubectl get svc ${SERVICE}-service
+
+      - name: Refresh Blue Deployment
+        if: success()
+        run: |
+          echo "♻️ Refreshing Blue deployment for next cycle..."
+          if [ "$SERVICE" = "frontend" ]; then
+            IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
+          else
+            IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
+          fi
+          kubectl set image deployment/${SERVICE}-blue ${SERVICE}=${IMAGE}:${{ github.sha }}
