@@ -1,0 +1,102 @@
+{
+    "repositories": [
+        {
+            "repositoryArn": "arn:aws:ecr:us-east-1:616930584352:repository/database-init",
+            "registryId": "616930584352",
+            "repositoryName": "database-init",
+            "repositoryUri": "616930584352.dkr.ecr.us-east-1.amazonaws.com/database-init",
+            "createdAt": "2025-11-03T14:39:58.042000+06:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": false
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:us-east-1:616930584352:repository/backend-repo",
+            "registryId": "616930584352",
+            "repositoryName": "backend-repo",
+            "repositoryUri": "616930584352.dkr.ecr.us-east-1.amazonaws.com/backend-repo",
+            "createdAt": "2025-11-05T20:59:38.034000+06:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:us-east-1:616930584352:repository/frontend-repo",
+            "registryId": "616930584352",
+            "repositoryName": "frontend-repo",
+            "repositoryUri": "616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend-repo",
+            "createdAt": "2025-11-05T20:59:38.036000+06:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:us-east-1:616930584352:repository/frontend",
+            "registryId": "616930584352",
+            "repositoryName": "frontend",
+            "repositoryUri": "616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend",
+            "createdAt": "2025-11-06T20:22:20.883000+06:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": false
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:us-east-1:616930584352:repository/backend-app",
+            "registryId": "616930584352",
+            "repositoryName": "backend-app",
+            "repositoryUri": "616930584352.dkr.ecr.us-east-1.amazonaws.com/backend-app",
+            "createdAt": "2025-11-03T14:39:58.032000+06:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": false
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:us-east-1:616930584352:repository/frontend-app",
+            "registryId": "616930584352",
+            "repositoryName": "frontend-app",
+            "repositoryUri": "616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend-app",
+            "createdAt": "2025-11-03T14:39:58.064000+06:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": false
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        },
+        {
+            "repositoryArn": "arn:aws:ecr:us-east-1:616930584352:repository/db-init-repo",
+            "registryId": "616930584352",
+            "repositoryName": "db-init-repo",
+            "repositoryUri": "616930584352.dkr.ecr.us-east-1.amazonaws.com/db-init-repo",
+            "createdAt": "2025-11-05T20:59:38.090000+06:00",
+            "imageTagMutability": "MUTABLE",
+            "imageScanningConfiguration": {
+                "scanOnPush": true
+            },
+            "encryptionConfiguration": {
+                "encryptionType": "AES256"
+            }
+        }
+    ]
+}
