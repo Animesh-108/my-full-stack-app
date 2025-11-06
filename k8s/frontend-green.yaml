@@ -19,39 +19,16 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend:latest
+          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend:green
           ports:
             - containerPort: 80
-          readinessProbe:
-            httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 5
-            periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /
-              port: 80
-            initialDelaySeconds: 10
-            periodSeconds: 10
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: frontend-green
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: frontend
-      version: green
-  template:
-    metadata:
-      labels:
-        app: frontend
-        version: green
-    spec:
-      containers:
-        - name: frontend
-          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend-repo:latest
-          ports:
-            - containerPort: 80
+          env:
+            - name: REACT_APP_API_URL
+              value: "http://backend-service:5000"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
