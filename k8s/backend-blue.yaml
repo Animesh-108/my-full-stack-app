@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/backend:latest
+          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/backend:blue
           ports:
             - containerPort: 5000
           readinessProbe:
