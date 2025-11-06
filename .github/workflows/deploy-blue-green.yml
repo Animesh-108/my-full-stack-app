@@ -22,6 +22,8 @@ jobs:
             echo "service=backend" >> $GITHUB_OUTPUT
           else
             echo "service=none" >> $GITHUB_OUTPUT
+          fi
+
 
   deploy:
     needs: detect
