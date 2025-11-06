@@ -17,24 +17,17 @@ jobs:
         id: detect
         run: |
           echo "🔍 Checking which service changed..."
-    
-            # Handle first commit case safely
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-             CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
-          else
-             echo "⚠️ No previous commit found — assuming full deploy"
-             CHANGED_FILES=$(git ls-files)
-          fi
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
 
           if echo "$CHANGED_FILES" | grep -q "^frontend/"; then
-              echo "✅ Detected frontend changes"
-              echo "service=frontend" >> $GITHUB_OUTPUT
+            echo "✅ Detected frontend changes"
+            echo "service=frontend" >> $GITHUB_OUTPUT
           elif echo "$CHANGED_FILES" | grep -q "^backend/"; then
-              echo "✅ Detected backend changes"
-              echo "service=backend" >> $GITHUB_OUTPUT
+            echo "✅ Detected backend changes"
+            echo "service=backend" >> $GITHUB_OUTPUT
           else
-              echo "⚠️ No service changes detected"
-              echo "service=none" >> $GITHUB_OUTPUT
+            echo "⚠️ No service changes detected"
+            echo "service=none" >> $GITHUB_OUTPUT
           fi
 
   deploy:
@@ -62,27 +55,27 @@ jobs:
       - name: Build Docker image
         run: |
           if [ "$SERVICE" = "frontend" ]; then
-            IMAGE=${{ secrets.ECR_REPO_FRONTEND }}
+            IMAGE="${{ secrets.ECR_REPO_FRONTEND }}"
           else
-            IMAGE=${{ secrets.ECR_REPO_BACKEND }}
+            IMAGE="${{ secrets.ECR_REPO_BACKEND }}"
           fi
 
           echo "🛠 Building Docker image for $SERVICE..."
           cd $SERVICE
-          docker build -t $IMAGE:green .
-          docker tag $IMAGE:green $IMAGE:${{ github.sha }}
+          docker build -t "${IMAGE}:green" .
+          docker tag "${IMAGE}:green" "${IMAGE}:${{ github.sha }}"
 
       - name: Push Docker image to ECR
         run: |
           if [ "$SERVICE" = "frontend" ]; then
-            IMAGE=${{ secrets.ECR_REPO_FRONTEND }}
+            IMAGE="${{ secrets.ECR_REPO_FRONTEND }}"
           else
-            IMAGE=${{ secrets.ECR_REPO_BACKEND }}
+            IMAGE="${{ secrets.ECR_REPO_BACKEND }}"
           fi
 
           echo "📤 Pushing Docker image for $SERVICE..."
-          docker push $IMAGE:green
-          docker push $IMAGE:${{ github.sha }}
+          docker push "${IMAGE}:green"
+          docker push "${IMAGE}:${{ github.sha }}"
 
       - name: Update kubeconfig
         run: |
@@ -92,13 +85,13 @@ jobs:
       - name: Deploy to Kubernetes (Green)
         run: |
           if [ "$SERVICE" = "frontend" ]; then
-            IMAGE=${{ secrets.ECR_REPO_FRONTEND }}
+            IMAGE="${{ secrets.ECR_REPO_FRONTEND }}"
           else
-            IMAGE=${{ secrets.ECR_REPO_BACKEND }}
+            IMAGE="${{ secrets.ECR_REPO_BACKEND }}"
           fi
 
-          echo "🚀 Deploying $SERVICE-green with image $IMAGE:green"
-          kubectl set image deployment/${SERVICE}-green ${SERVICE}=$IMAGE:green
+          echo "🚀 Deploying $SERVICE-green with image ${IMAGE}:green"
+          kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE}:green
           kubectl rollout status deployment/${SERVICE}-green --timeout=120s
 
       - name: Switch Traffic (Blue → Green)
