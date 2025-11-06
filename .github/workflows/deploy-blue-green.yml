@@ -17,17 +17,24 @@ jobs:
         id: detect
         run: |
           echo "🔍 Checking which service changed..."
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
+    
+            # Handle first commit case safely
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+             CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          else
+             echo "⚠️ No previous commit found — assuming full deploy"
+             CHANGED_FILES=$(git ls-files)
+          fi
 
           if echo "$CHANGED_FILES" | grep -q "^frontend/"; then
-            echo "✅ Detected frontend changes"
-            echo "service=frontend" >> $GITHUB_OUTPUT
+              echo "✅ Detected frontend changes"
+              echo "service=frontend" >> $GITHUB_OUTPUT
           elif echo "$CHANGED_FILES" | grep -q "^backend/"; then
-            echo "✅ Detected backend changes"
-            echo "service=backend" >> $GITHUB_OUTPUT
+              echo "✅ Detected backend changes"
+              echo "service=backend" >> $GITHUB_OUTPUT
           else
-            echo "⚠️ No service changes detected"
-            echo "service=none" >> $GITHUB_OUTPUT
+              echo "⚠️ No service changes detected"
+              echo "service=none" >> $GITHUB_OUTPUT
           fi
 
   deploy:
