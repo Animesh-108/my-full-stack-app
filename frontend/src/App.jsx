@@ -11,7 +11,7 @@ function App() {
   }, [])
 
   return (
-    <h1 style={{ color: 'green' }}>Hello from Green runing</h1>
+    <h1 style={{ color: 'green' }}>Hello from Green run</h1>
   )
 }
 
