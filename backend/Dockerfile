@@ -14,5 +14,5 @@ COPY . .
 # Expose backend port
 EXPOSE 5000
 
-# Start backend (update entrypoint if needed)
-CMD ["node", "index.js"]
+# Start backend
+CMD ["node", "server.js"]
