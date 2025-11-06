@@ -22,6 +22,51 @@ spec:
           image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend:green
           ports:
             - containerPort: 80
+          # NGINX is serving the built Vite app and proxying /api requests to backend-service
+          # No environment variables are needed here
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 30
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-green
+  labels:
+    app: frontend
+    version: green
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+      version: green
+  template:
+    metadata:
+      labels:
+        app: frontend
+        version: green
+    spec:
+      containers:
+        - name: frontend
+          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend:green
+          ports:
+            - containerPort: 80
           env:
             - name: REACT_APP_API_URL
               value: "http://backend-service:5000"
