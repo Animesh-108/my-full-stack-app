@@ -1,12 +1,21 @@
-# Dockerfile for backend
+# Use Node 18 Alpine image
 FROM node:18-alpine
 
+# Set working directory
 WORKDIR /app
 
+# Copy backend package files and install dependencies
 COPY package*.json ./
 RUN npm install --production
 
+# Copy backend source code
 COPY . .
 
+# Copy built frontend from frontend/dist (make sure frontend build is done)
+COPY ../frontend/dist ./frontend/dist
+
+# Expose backend port
 EXPOSE 5000
-CMD ["node", "server.js"]
+
+# Start backend (update entrypoint if needed)
+CMD ["node", "index.js"]
