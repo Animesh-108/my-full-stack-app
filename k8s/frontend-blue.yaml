@@ -19,7 +19,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend:latest
+          # Changed from :latest to :blue for stability
+          image: 616930584352.dkr.ecr.us-east-1.amazonaws.com/frontend:blue
           ports:
             - containerPort: 80
           readinessProbe:
@@ -43,7 +44,7 @@ spec:
   type: LoadBalancer
   selector:
     app: frontend
-    version: blue
+    version: blue # This service initially points to blue
   ports:
     - port: 80
       targetPort: 80

@@ -11,9 +11,6 @@ RUN npm install --production
 # Copy backend source code
 COPY . .
 
-# Copy built frontend from frontend/dist (make sure frontend build is done)
-COPY ../frontend/dist ./frontend/dist
-
 # Expose backend port
 EXPOSE 5000
 
