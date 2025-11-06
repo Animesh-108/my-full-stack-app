@@ -29,12 +29,14 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          if echo "$CHANGED_FILES" | grep -q "^frontend/"; then
-            echo "✅ Detected frontend changes"
-            echo "service=frontend" >> $GITHUB_OUTPUT
-          elif echo "$CHANGED_FILES" | grep -q "^backend/"; then
+          # --- FIX: Swapped backend and frontend checks ---
+          # Check for backend changes FIRST to ensure they are not missed
+          if echo "$CHANGED_FILES" | grep -q "^backend/"; then
             echo "✅ Detected backend changes"
             echo "service=backend" >> $GITHUB_OUTPUT
+          elif echo "$CHANGED_FILES" | grep -q "^frontend/"; then
+            echo "✅ Detected frontend changes"
+            echo "service=frontend" >> $GITHUB_OUTPUT
           else
             echo "⚠️ No service changes detected"
             echo "service=none" >> $GITHUB_OUTPUT
@@ -114,8 +116,9 @@ jobs:
             MANIFEST="k8s/backend-green.yaml"
           fi
 
-          echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE}:green"
+          echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE}:${{ github.sha }}"
           kubectl apply -f $MANIFEST
+          # Use the unique commit SHA for the deployment to bust node cache
           kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE}:${{ github.sha }}
           kubectl rollout status deployment/${SERVICE}-green --timeout=120s
 
