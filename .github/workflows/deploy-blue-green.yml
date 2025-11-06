@@ -79,8 +79,8 @@ jobs:
 
       - name: Update kubeconfig
         run: |
-          echo "🔧 Updating kubeconfig..."
-          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+          echo "🔧 Updating kubeconfig for blue-green-cluster..."
+          aws eks update-kubeconfig --name blue-green-cluster --region ${{ secrets.AWS_REGION }}
 
       - name: Deploy to Kubernetes (Green)
         run: |
