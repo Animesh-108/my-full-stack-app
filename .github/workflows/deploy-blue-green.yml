@@ -95,9 +95,9 @@ jobs:
       - name: Deploy to Kubernetes (Green)
         run: |
           if [ "$SERVICE" = "frontend" ]; then
-            IMAGE="${{ secrets.ECR_REPO_FRONTEND }}"
+            IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
           else
-            IMAGE="${{ secrets.ECR_REPO_BACKEND }}"
+            IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
           fi
 
           echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE}:green"
