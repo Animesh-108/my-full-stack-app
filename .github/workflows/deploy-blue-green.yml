@@ -17,7 +17,17 @@ jobs:
         id: detect
         run: |
           echo "🔍 Checking which service changed..."
-          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD || echo "")
+
+          # Handle first commit or shallow clone
+          if git rev-parse HEAD~1 >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          else
+            echo "🆕 First commit or shallow clone detected. Comparing all files."
+            CHANGED_FILES=$(git ls-tree -r --name-only HEAD)
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
 
           if echo "$CHANGED_FILES" | grep -q "^frontend/"; then
             echo "✅ Detected frontend changes"
@@ -80,7 +90,7 @@ jobs:
       - name: Update kubeconfig
         run: |
           echo "🔧 Updating kubeconfig for blue-green-cluster..."
-          aws eks update-kubeconfig --name blue-green-cluster --region ${{ secrets.AWS_REGION }}
+          aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
 
       - name: Deploy to Kubernetes (Green)
         run: |
@@ -90,13 +100,13 @@ jobs:
             IMAGE="${{ secrets.ECR_REPO_BACKEND }}"
           fi
 
-          echo "🚀 Deploying $SERVICE-green with image ${IMAGE}:green"
+          echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE}:green"
           kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE}:green
           kubectl rollout status deployment/${SERVICE}-green --timeout=120s
 
       - name: Switch Traffic (Blue → Green)
         if: success()
         run: |
-          echo "🔁 Switching traffic to $SERVICE-green..."
+          echo "🔁 Switching traffic to ${SERVICE}-green..."
           kubectl patch svc ${SERVICE}-service -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"green\"}}}"
           kubectl get svc ${SERVICE}-service
