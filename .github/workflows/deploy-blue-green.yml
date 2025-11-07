@@ -13,19 +13,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Fetches all history
+          fetch-depth: 0 # Fetches all history to prevent shallow clone issues
 
       - name: Detect which service changed
         id: detect
         run: |
           echo "🔍 Checking which service changed..."
+          
+          # Use HEAD~1 to get the last commit's changes
           CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
+          # Check for backend code OR backend k8s files
           if echo "$CHANGED_FILES" | grep -q -E "^backend/|^k8s/backend-"; then
             echo "✅ Detected backend changes"
             echo "service=backend" >> $GITHUB_OUTPUT
+          # Check for frontend code OR frontend k8s files
           elif echo "$CHANGED_FILES" | grep -q -E "^frontend/|^k8s/frontend-"; then
             echo "✅ Detected frontend changes"
             echo "service=frontend" >> $GITHUB_OUTPUT
@@ -53,15 +58,16 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
+        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Set Image URI
         id: set-image-uri
         run: |
           if [ "${{ needs.detect.outputs.service }}" = "frontend" ]; then
-            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')" >> $GITHUB_ENV
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
           else
-            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')" >> $GITHUB_ENV
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
           fi
       
       - name: Ensure ECR repository exists
@@ -75,11 +81,13 @@ jobs:
           aws ecr create-repository --repository-name $REPO_NAME --region ${{ secrets.AWS_REGION }}
 
       - name: Build and push Docker image
-        env:
-          IMAGE_SHA: ${{ github.sha }}
+        id: build-image # Give this step an ID
         run: |
           SERVICE="${{ needs.detect.outputs.service }}"
+          IMAGE_URI="${{ steps.set-image-uri.outputs.IMAGE_URI }}"
+          IMAGE_SHA="${{ github.sha }}"
           
+          # Set context path for Docker build
           if [ "$SERVICE" = "frontend" ]; then
             BUILD_CONTEXT="frontend"
           else
@@ -92,6 +100,9 @@ jobs:
           echo "📤 Pushing Docker image for $SERVICE..."
           docker push "${IMAGE_URI}:${IMAGE_SHA}"
           docker push "${IMAGE_URI}:green"
+          
+          # Output the URI for the next job
+          echo "::set-output name=IMAGE_URI::${IMAGE_URI}"
 
   deploy_green:
     needs: build_and_push
@@ -113,40 +124,85 @@ jobs:
         run: |
           aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
 
+      # Re-create the IMAGE_URI variable securely
       - name: Set Image URI
         id: set-image-uri
         run: |
           if [ "${{ needs.build_and_push.outputs.SERVICE }}" = "frontend" ]; then
-            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')" >> $GITHUB_ENV
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
           else
-            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')" >> $GITHUB_ENV
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy to Kubernetes (Green)
         run: |
           SERVICE="${{ needs.build_and_push.outputs.SERVICE }}"
           MANIFEST="k8s/${SERVICE}-green.yaml"
+          IMAGE_URI="${{ steps.set-image-uri.outputs.IMAGE_URI }}"
           IMAGE_SHA="${{ needs.build_and_push.outputs.IMAGE_SHA }}"
 
           echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE_URI}:${IMAGE_SHA}"
           kubectl apply -f $MANIFEST
           kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE_URI}:${IMAGE_SHA}
 
-      - name: Verify Green Deployment Health
+      # --- UPDATED VERIFICATION STEP ---
+      - name: Verify Green Deployment Health (with Metrics)
         run: |
           SERVICE="${{ needs.build_and_push.outputs.SERVICE }}"
           echo "🔍 Verifying Green deployment health..."
+          
+          # 1. Initial rollout check (fast)
           kubectl rollout status deployment/${SERVICE}-green --timeout=120s || {
-            echo "❌ Green deployment failed health checks!"
+            echo "❌ Green deployment failed basic rollout!"
             exit 1
           }
 
+          # Only run advanced metrics check for the backend
+          if [ "$SERVICE" = "backend" ]; then
+            echo "🔬 Starting 60-second canary test for backend..."
+            
+            # Install bc for floating point comparison
+            sudo apt-get update && sudo apt-get install -y bc
+            
+            # Port-forward Prometheus in the background
+            # This is simpler than installing promq or curl inside the runner
+            echo "Setting up port-forward to Prometheus..."
+            kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090 &
+            PROM_PID=$!
+            sleep 5 # Give port-forward time to establish
+            
+            PROM_URL="http://127.0.0.1:9090"
+
+            # Loop for 60 seconds, checking for errors every 10 seconds
+            for i in $(seq 1 6); do
+              sleep 10
+              echo "Checking for 5xx errors... (Check $i of 6)"
+              
+              # This query looks for any 5xx errors from the 'backend-green' pods in the last minute
+              ERROR_QUERY="sum(rate(http_request_duration_seconds_count{status_code=~'5..', job='default/backend-green'}[1m]))"
+              
+              # Use curl to query Prometheus
+              ERROR_RATE=$(curl -s -g "$PROM_URL/api/v1/query" --data-urlencode "query=$ERROR_QUERY" | jq -r '.data.result[0].value[1] // "0"')
+
+              if [ $(echo "$ERROR_RATE > 0" | bc -l) -eq 1 ]; then
+                echo "❌ Canary test failed! Detected 5xx error rate: $ERROR_RATE"
+                kill $PROM_PID # Kill the port-forward process
+                exit 1
+              else
+                echo "✅ No errors detected. (Rate: $ERROR_RATE)"
+              fi
+            done
+            
+            echo "✅ Canary test passed! Green deployment is healthy."
+            kill $PROM_PID # Kill the port-forward process
+          else
+            echo "✅ Frontend deployment is ready (skipping advanced metrics)."
+          fi
+
   switch_traffic:
-    needs: [build_and_push, deploy_green] 
+    needs: deploy_green
     runs-on: ubuntu-latest
-    environment: production 
-    outputs:
-      SERVICE: ${{ needs.deploy_green.outputs.SERVICE }} # Pass service name to cleanup job
+    environment: production # Pauses for manual approval
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -159,13 +215,14 @@ jobs:
         run: |
           aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
 
+      # Re-create the IMAGE_URI variable securely
       - name: Set Image URI
         id: set-image-uri
         run: |
           if [ "${{ needs.deploy_green.outputs.SERVICE }}" = "frontend" ]; then
-            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')" >> $GITHUB_ENV
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
           else
-            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')" >> $GITHUB_ENV
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
           fi
 
       - name: Switch Traffic (Blue → Green)
@@ -179,15 +236,14 @@ jobs:
       - name: Refresh Blue Deployment
         run: |
           SERVICE="${{ needs.deploy_green.outputs.SERVICE }}"
+          IMAGE_URI="${{ steps.set-image-uri.outputs.IMAGE_URI }}"
           IMAGE_SHA="${{ needs.build_and_push.outputs.IMAGE_SHA }}"
 
           echo "♻️ Refreshing Blue deployment for next cycle..."
           kubectl set image deployment/${SERVICE}-blue ${SERVICE}=${IMAGE_URI}:${IMAGE_SHA}
 
-  # --- NEW JOB ADDED BELOW ---
-
   cleanup_blue:
-    needs: switch_traffic # Only run AFTER traffic switch is successful
+    needs: switch_traffic # Only run if the traffic switch was successful
     runs-on: ubuntu-latest
     steps:
       - name: Configure AWS credentials
@@ -203,6 +259,6 @@ jobs:
           
       - name: Scale down Blue deployment
         run: |
-          SERVICE="${{ needs.switch_traffic.outputs.SERVICE }}"
+          SERVICE="${{ needs.deploy_green.outputs.SERVICE }}"
           echo "✅ Green deployment is live. Scaling down ${SERVICE}-blue to 0 replicas."
           kubectl scale deployment/${SERVICE}-blue --replicas=0

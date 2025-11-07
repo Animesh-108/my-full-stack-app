@@ -16,6 +16,11 @@ spec:
       labels:
         app: backend
         version: blue
+      # --- ADD THESE 3 ANNOTATIONS ---
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/path:   '/metrics'
+        prometheus.io/port:   '5000'
     spec:
       containers:
         - name: backend
@@ -24,13 +29,13 @@ spec:
             - containerPort: 5000
           readinessProbe:
             httpGet:
-              path: /api/health # <-- FIX: Changed from /health
+              path: /api/health # Corrected path
               port: 5000
             initialDelaySeconds: 5
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /api/health # <-- FIX: Changed from /health
+              path: /api/health # Corrected path
               port: 5000
             initialDelaySeconds: 10
             periodSeconds: 10
