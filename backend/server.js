@@ -18,10 +18,3 @@ app.get("/api/hello", (req, res) => {
 app.listen(5000, () => {
   console.log("✅ Server running on http://localhost:5000");
 });
-
-// ✅ Add this route so frontend fetch works
-
-app.get("/api/error", (req, res) => {
-  // This will cause a 500 error
-  throw new Error("Test error for Prometheus!");
-});
