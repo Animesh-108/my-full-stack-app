@@ -39,7 +39,6 @@ jobs:
     if: needs.detect.outputs.service != 'none'
     runs-on: ubuntu-latest
     outputs:
-      # We only output non-secret information
       IMAGE_SHA: ${{ github.sha }}
       SERVICE: ${{ needs.detect.outputs.service }}
     steps:
@@ -114,7 +113,6 @@ jobs:
         run: |
           aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
 
-      # --- FIX: Recreate the IMAGE_URI instead of reading from output ---
       - name: Set Image URI
         id: set-image-uri
         run: |
@@ -144,9 +142,11 @@ jobs:
           }
 
   switch_traffic:
-    needs: [build_and_push, deploy_green] # Needs outputs from both jobs
+    needs: [build_and_push, deploy_green] 
     runs-on: ubuntu-latest
     environment: production 
+    outputs:
+      SERVICE: ${{ needs.deploy_green.outputs.SERVICE }} # Pass service name to cleanup job
     steps:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -159,7 +159,6 @@ jobs:
         run: |
           aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
 
-      # --- FIX: Recreate the IMAGE_URI instead of reading from output ---
       - name: Set Image URI
         id: set-image-uri
         run: |
@@ -184,3 +183,26 @@ jobs:
 
           echo "♻️ Refreshing Blue deployment for next cycle..."
           kubectl set image deployment/${SERVICE}-blue ${SERVICE}=${IMAGE_URI}:${IMAGE_SHA}
+
+  # --- NEW JOB ADDED BELOW ---
+
+  cleanup_blue:
+    needs: switch_traffic # Only run AFTER traffic switch is successful
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
+          
+      - name: Scale down Blue deployment
+        run: |
+          SERVICE="${{ needs.switch_traffic.outputs.SERVICE }}"
+          echo "✅ Green deployment is live. Scaling down ${SERVICE}-blue to 0 replicas."
+          kubectl scale deployment/${SERVICE}-blue --replicas=0
