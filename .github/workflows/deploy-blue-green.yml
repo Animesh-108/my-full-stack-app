@@ -13,26 +13,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # <-- FIX 1: Fetches all history to prevent shallow clone issues
+          fetch-depth: 0 # Fetches all history to prevent shallow clone issues
 
       - name: Detect which service changed
         id: detect
         run: |
           echo "🔍 Checking which service changed..."
-
-          # This will now work reliably (except for the very first commit)
-          if git rev-parse HEAD~1 >/dev/null 2>&1; then
-            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
-          else
-            echo "🆕 First commit or shallow clone detected. Comparing all files."
-            CHANGED_FILES=$(git ls-tree -r --name-only HEAD)
-          fi
-
+          
+          # Use HEAD~1 to get the last commit's changes
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # --- FIX 2: Updated detection logic to check for k8s files ---
-          # Use grep -E for extended regex (to use '|')
           # Check for backend code OR backend k8s files
           if echo "$CHANGED_FILES" | grep -q -E "^backend/|^k8s/backend-"; then
             echo "✅ Detected backend changes"
@@ -46,13 +39,15 @@ jobs:
             echo "service=none" >> $GITHUB_OUTPUT
           fi
 
-  deploy:
+  build_and_push:
     needs: detect
     if: needs.detect.outputs.service != 'none'
     runs-on: ubuntu-latest
-    env:
+    # Pass the image URI and SHA to downstream jobs
+    outputs:
+      IMAGE_URI: ${{ steps.set-image-uri.outputs.IMAGE_URI }}
+      IMAGE_SHA: ${{ github.sha }}
       SERVICE: ${{ needs.detect.outputs.service }}
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -68,87 +63,119 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Set Image URI
+        id: set-image-uri
+        run: |
+          if [ "${{ needs.detect.outputs.service }}" = "frontend" ]; then
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
+          else
+            echo "IMAGE_URI=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Ensure ECR repository exists
         run: |
-          if [ "$SERVICE" = "frontend" ]; then
+          if [ "${{ needs.detect.outputs.service }}" = "frontend" ]; then
             REPO_NAME="frontend"
           else
             REPO_NAME="backend"
           fi
-
           aws ecr describe-repositories --repository-names $REPO_NAME --region ${{ secrets.AWS_REGION }} || \
           aws ecr create-repository --repository-name $REPO_NAME --region ${{ secrets.AWS_REGION }}
 
-      - name: Build Docker image
+      - name: Build and push Docker image
         run: |
+          SERVICE="${{ needs.detect.outputs.service }}"
+          IMAGE_URI="${{ steps.set-image-uri.outputs.IMAGE_URI }}"
+          IMAGE_SHA="${{ github.sha }}"
+          
+          # Set context path for Docker build
           if [ "$SERVICE" = "frontend" ]; then
-            IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
-            cd frontend
+            BUILD_CONTEXT="frontend"
           else
-            IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
-            cd backend
+            BUILD_CONTEXT="backend"
           fi
 
           echo "🛠 Building Docker image for $SERVICE..."
-          docker build -t "${IMAGE}:green" .
-          docker tag "${IMAGE}:green" "${IMAGE}:${{ github.sha }}"
-
-      - name: Push Docker image to ECR
-        run: |
-          if [ "$SERVICE" = "frontend" ]; then
-            IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
-          else
-            IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
-          fi
-
+          docker build -t "${IMAGE_URI}:${IMAGE_SHA}" -t "${IMAGE_URI}:green" ./${BUILD_CONTEXT}
+          
           echo "📤 Pushing Docker image for $SERVICE..."
-          docker push "${IMAGE}:green"
-          docker push "${IMAGE}:${{ github.sha }}"
+          docker push "${IMAGE_URI}:${IMAGE_SHA}"
+          docker push "${IMAGE_URI}:green"
+
+  deploy_green:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    # Pass service name to the next job
+    outputs:
+      SERVICE: ${{ needs.build_and_push.outputs.SERVICE }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Update kubeconfig
         run: |
-          echo "🔧 Updating kubeconfig for blue-green-cluster..."
           aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
 
       - name: Deploy to Kubernetes (Green)
         run: |
-          if [ "$SERVICE" = "frontend" ]; then
-            IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
-            MANIFEST="k8s/frontend-green.yaml"
-          else
-            IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
-            MANIFEST="k8s/backend-green.yaml"
-          fi
+          SERVICE="${{ needs.build_and_push.outputs.SERVICE }}"
+          MANIFEST="k8s/${SERVICE}-green.yaml"
+          IMAGE_URI="${{ needs.build_and_push.outputs.IMAGE_URI }}"
+          IMAGE_SHA="${{ needs.build_and_push.outputs.IMAGE_SHA }}"
 
-          echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE}:${{ github.sha }}"
+          echo "🚀 Deploying ${SERVICE}-green with image ${IMAGE_URI}:${IMAGE_SHA}"
           kubectl apply -f $MANIFEST
-          # Use the unique commit SHA for the deployment to bust node cache
-          kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE}:${{ github.sha }}
-          kubectl rollout status deployment/${SERVICE}-green --timeout=120s
+          kubectl set image deployment/${SERVICE}-green ${SERVICE}=${IMAGE_URI}:${IMAGE_SHA}
 
       - name: Verify Green Deployment Health
         run: |
+          SERVICE="${{ needs.build_and_push.outputs.SERVICE }}"
           echo "🔍 Verifying Green deployment health..."
-          kubectl rollout status deployment/${SERVICE}-green --timeout=60s || {
-            echo "❌ Green deployment failed! Rolling back to Blue..."
-            kubectl patch svc ${SERVICE}-service -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"blue\"}}}"
+          # This is your automatic health check
+          kubectl rollout status deployment/${SERVICE}-green --timeout=120s || {
+            echo "❌ Green deployment failed health checks!"
+            # No rollback needed here, as traffic was never switched
             exit 1
           }
 
-      - name: Switch Traffic (Blue → Green)
-        if: success()
+  switch_traffic:
+    needs: deploy_green
+    runs-on: ubuntu-latest
+    # This key links the job to your protected environment
+    # The job will PAUSE here and wait for your approval
+    environment: production 
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Update kubeconfig
         run: |
+          aws eks update-kubeconfig --name blue-green-cluster --region "${{ secrets.AWS_REGION }}"
+
+      - name: Switch Traffic (Blue → Green)
+        run: |
+          SERVICE="${{ needs.deploy_green.outputs.SERVICE }}"
           echo "🔁 Switching traffic to ${SERVICE}-green..."
           kubectl patch svc ${SERVICE}-service -p "{\"spec\":{\"selector\":{\"app\":\"${SERVICE}\",\"version\":\"green\"}}}"
+          echo "✅ Traffic switched. Current service status:"
           kubectl get svc ${SERVICE}-service
 
       - name: Refresh Blue Deployment
-        if: success()
         run: |
+          SERVICE="${{ needs.deploy_green.outputs.SERVICE }}"
+          IMAGE_URI="${{ needs.build_and_push.outputs.IMAGE_URI }}"
+          IMAGE_SHA="${{ needs.build_and_push.outputs.IMAGE_SHA }}"
+
           echo "♻️ Refreshing Blue deployment for next cycle..."
-          if [ "$SERVICE" = "frontend" ]; then
-            IMAGE=$(echo "${{ secrets.ECR_REPO_FRONTEND }}" | tr -d '\n\r')
-          else
-            IMAGE=$(echo "${{ secrets.ECR_REPO_BACKEND }}" | tr -d '\n\r')
-          fi
-          kubectl set image deployment/${SERVICE}-blue ${SERVICE}=${IMAGE}:${{ github.sha }}
+          kubectl set image deployment/${SERVICE}-blue ${SERVICE}=${IMAGE_URI}:${IMAGE_SHA}
