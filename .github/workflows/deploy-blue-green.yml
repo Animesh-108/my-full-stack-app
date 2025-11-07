@@ -12,13 +12,15 @@ jobs:
       service: ${{ steps.detect.outputs.service }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # <-- FIX 1: Fetches all history to prevent shallow clone issues
 
       - name: Detect which service changed
         id: detect
         run: |
           echo "🔍 Checking which service changed..."
 
-          # Handle first commit or shallow clone
+          # This will now work reliably (except for the very first commit)
           if git rev-parse HEAD~1 >/dev/null 2>&1; then
             CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
           else
@@ -29,12 +31,14 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # --- FIX: Swapped backend and frontend checks ---
-          # Check for backend changes FIRST to ensure they are not missed
-          if echo "$CHANGED_FILES" | grep -q "^backend/"; then
+          # --- FIX 2: Updated detection logic to check for k8s files ---
+          # Use grep -E for extended regex (to use '|')
+          # Check for backend code OR backend k8s files
+          if echo "$CHANGED_FILES" | grep -q -E "^backend/|^k8s/backend-"; then
             echo "✅ Detected backend changes"
             echo "service=backend" >> $GITHUB_OUTPUT
-          elif echo "$CHANGED_FILES" | grep -q "^frontend/"; then
+          # Check for frontend code OR frontend k8s files
+          elif echo "$CHANGED_FILES" | grep -q -E "^frontend/|^k8s/frontend-"; then
             echo "✅ Detected frontend changes"
             echo "service=frontend" >> $GITHUB_OUTPUT
           else
