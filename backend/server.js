@@ -11,7 +11,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // ✅ Add this route so frontend fetch works
-app.get("/api/hell", (req, res) => {
+app.get("/api/hello", (req, res) => {
   res.json({ message: "Hello from the backend!" });
 });
 
@@ -20,3 +20,8 @@ app.listen(5000, () => {
 });
 
 // ✅ Add this route so frontend fetch works
+
+app.get("/api/error", (req, res) => {
+  // This will cause a 500 error
+  throw new Error("Test error for Prometheus!");
+});
