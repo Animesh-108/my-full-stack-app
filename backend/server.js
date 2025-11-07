@@ -11,7 +11,7 @@ app.get("/api/health", (req, res) => {
 });
 
 // ✅ Add this route so frontend fetch works
-app.get("/api/hello", (req, res) => {
+app.get("/api/hell", (req, res) => {
   res.json({ message: "Hello from the backend!" });
 });
 
