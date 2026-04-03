@@ -1,4 +1,2 @@
 test
 feature
-checking
-email
